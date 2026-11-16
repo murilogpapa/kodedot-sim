@@ -1,7 +1,14 @@
 {
   "area": "audio",
-  "description": "ES8311 codec (stubbed except park)",
-  "supersedes": {
-    "components/kdrv/audio/src/kdrv_es8311.c": "stubbed: I2S codec (stage 4)"
-  }
+  "description": "ES8311 codec + I2S: the real kdrv_es8311.c runs over a software I2S controller paced at 48 kHz, an ES8311 register model, a shared-memory output ring for an AudioWorklet and bench microphone sources",
+  "sources": ["*.c"],
+  "i2c_chips": ["audio_es8311_register"],
+  "exports": [
+    "audio_shared_ptr", "audio_layout", "audio_bench_set", "audio_set_tolerance_ms", "audio_set_pacing", "audio_stats_reset",
+    "audio_cap_start", "audio_cap_stop", "audio_cap_frames", "audio_cap_overflow", "audio_cap_ptr",
+    "audio_in_source", "audio_in_synth", "audio_in_rewind", "audio_in_rewind_auto",
+    "audio_in_file_begin", "audio_in_file_commit", "audio_in_file_clear"
+  ],
+  "js": ["audio.js", "audio-worklet.js"],
+  "test_apps": ["sdk:examples/audio", "area:../../../tests/node/audio/apps/audio_api"]
 }
