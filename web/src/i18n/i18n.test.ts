@@ -67,7 +67,6 @@ describe('translate', () => {
   });
   it('names the product descriptor in each language', () => {
     expect(translate('en', 'app.descriptor')).toBe('A simulator for Kode Dot apps');
-    expect(translate('pt-BR', 'app.unofficial')).toBe('Não oficial. Sem vínculo com a Kode.');
     expect(translate('pt-BR', 'app.descriptor')).toBe('Simulador de apps do Kode Dot');
     expect(translate('es', 'app.descriptor')).toBe('Simulador de apps para Kode Dot');
   });

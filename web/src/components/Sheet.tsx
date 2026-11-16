@@ -10,6 +10,7 @@ import { ConsolePanel } from './ConsolePanel';
 import { LanguageSelect, MockToggle, RunButtons, ThemeChoice } from './Controls';
 import { Icon } from './Glyphs';
 import { LeftPanel } from './LeftPanel';
+import { ModelControls } from './ModelControls';
 import { About } from './TopBar';
 import { ScrollArea, useTabs } from './ui';
 
@@ -277,6 +278,7 @@ function Settings() {
             <span className="block text-[13px] leading-snug text-ink2">{t('settings.wake.hint')}</span>
           </span>
         </label>
+        <ModelControls />
         <DeviceActions />
         <MockToggle />
         <About />

@@ -145,6 +145,7 @@ const ICONS = {
   arrowDown: <path d="M12 5v14M6.5 13.5L12 19l5.5-5.5" />,
   send: <path d="M5 12h13M12.5 6.5L18 12l-5.5 5.5" />,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
+  cube: <path d="M12 3.5l7.5 4.2v8.6L12 20.5l-7.5-4.2V7.7L12 3.5zM4.5 7.7l7.5 4.3 7.5-4.3M12 12v8.5" />,
   info: (
     <>
       <circle cx="12" cy="12" r="8.5" />

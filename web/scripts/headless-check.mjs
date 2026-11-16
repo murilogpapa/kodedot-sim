@@ -20,7 +20,8 @@ function check(name, cond, detail = '') {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
 }
 
-const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: 'ignore' });
+// node runs vite directly (not through npx), so server.kill() really stops the preview and no orphan keeps the port
+const server = spawn(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), 'preview', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: 'ignore' });
 async function waitServer() {
   for (let i = 0; i < 50; i++) {
     try {
@@ -159,7 +160,7 @@ async function overflowOffenders(page) {
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
-      if (el.closest('[inert]') || el.closest('[aria-hidden=true]')) continue;
+      if (el.closest('[inert]') || el.closest('[aria-hidden=true]') || el.closest('.sr-only')) continue;
       if (el.closest('[data-testid=sheet]') && el.closest('[data-testid=sheet]').dataset.open === 'false') continue;
       const clipped = el.scrollWidth > el.clientWidth + 1 && !['auto', 'scroll'].includes(cs.overflowX) && cs.textOverflow !== 'ellipsis' && el.clientWidth > 0 && !(el instanceof SVGElement) && cs.overflowX !== 'visible';
       const textSpill = cs.overflowX === 'visible' && el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0 && el.children.length === 0 && !(el instanceof SVGElement) && cs.display !== 'inline';
@@ -217,7 +218,8 @@ try {
     check('3D scene re-renders as frames arrive', f1 > f0 + 5, `gl frames ${f0} -> ${f1}`);
     check('3D canvas pixels change over time', sA !== sB);
     const fps = await fpsOf(page);
-    check('status bar: redraw rate > 0 and shown as fps while the mock animates', fps > 0 && /fps/.test(await page.$eval('[data-testid=status-fps]', (e) => e.textContent)), `fps=${fps}`);
+    const fpsText = await page.$eval('[data-testid=status-fps]', (e) => e.textContent);
+    check('status bar: redraw rate > 0, worded as a frame rate when it animates and as steady below 5 per second', fps > 0 && (/^\d+ fps$/.test(fpsText) || fpsText === 'steady'), `fps=${fps} text="${fpsText}"`);
 
 
     await checkTabContrast(page, 'light 1440');
@@ -361,7 +363,7 @@ try {
     check('document title names the product and its descriptor in the page language', (await page.title()) === 'KodeDot Sim · Simulador de apps para Kode Dot', await page.title());
     await setLang(page, 'en');
     check('wordmark and title say KodeDot Sim', (await page.title()) === 'KodeDot Sim · A simulator for Kode Dot apps' && (await page.$eval('[data-testid=brand]', (e) => e.textContent.trim())) === 'KodeDot Sim');
-    check('settings carry the unofficial notice', await inMenu(page, 'settings-menu', () => page.$eval('[data-testid=about]', (e) => /Unofficial\. Not affiliated with Kode\./.test(e.textContent))));
+    check('settings name the product with its descriptor and carry no notices', await inMenu(page, 'settings-menu', () => page.$eval('[data-testid=about]', (e) => e.textContent.trim() === 'KodeDot Sim · A simulator for Kode Dot apps')));
     await page.click('[data-testid=left-tab-bench]');
 
     // tabs follow the ARIA pattern: arrows move and select, and do not reach the D-pad
@@ -460,9 +462,10 @@ try {
     check('laptop 1280x720: no horizontal scroll', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: join(shots, '2d-light-1280x720.png') });
     await page.click('[data-testid=left-tab-components]');
+    await sleep(300); // colours cross-fade in 150 ms
     await checkTabContrast(page, 'light 1280 (components active)');
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-    await sleep(150);
+    await sleep(350);
     await checkTabContrast(page, 'dark 1280');
     await page.screenshot({ path: join(shots, '2d-dark-1280x720.png') });
     await ctx.close();
@@ -546,7 +549,8 @@ try {
     const hb = await handle.boundingBox();
     if (lang === 'en') check('phone: sheet handle is a >= 44px target outside the device art', hb.height >= 44 && hb.width >= 44, `${hb.width}x${hb.height}`);
     if (lang === 'en') {
-      check('phone: the closed sheet shows its four tabs as a bar, all inside the viewport', await page.$$eval('[data-testid=sheet] [role=tab]', (els) => els.length === 4 && els.every((e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && r.height >= 44; })));
+      const bar = await page.$$eval('[data-testid=sheet] [data-testid^=tab-]', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), b: Math.round(r.bottom), h: Math.round(r.height) }; }));
+      check('phone: the closed sheet shows its four tabs as a bar, all inside the viewport', bar.length === 4 && bar.every((r) => r.l >= 0 && r.r <= 390 && r.b <= 844 && r.h >= 44), JSON.stringify(bar));
       check('phone: the content of the closed sheet is inert', await page.evaluate(() => !!document.querySelector('[data-testid=bench-panel]')?.closest('[inert]')));
     }
     await handle.tap();
@@ -825,6 +829,93 @@ try {
     check('unsupported browser (phone): a friendly card names the cause', /cannot run apps/.test(txt) && /cross-origin isolated/.test(txt), txt.slice(0, 120));
     check('unsupported browser (phone): nothing crashed, no overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: join(shots, 'phone-unsupported.png') });
+    await ctx.close();
+  }
+
+  // ================= K. "3D model" entry and dropped files (stand-in model store; the real one belongs to the 3D code) =================
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await ctx.newPage();
+    watch(page, 'model');
+    await page.setViewport({ width: 1280, height: 720 });
+    await page.evaluateOnNewDocument(() => { localStorage.setItem('dotbench.mock', 'true'); localStorage.setItem('dotbench.lang', '"en"'); localStorage.setItem('dotbench.view', '"2d"'); localStorage.setItem('dotbench.welcomed', 'true'); });
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => !!window.__dotbench);
+    const drop = (name) => page.evaluate(async (n) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array(2048)], n));
+      window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
+      await new Promise((r) => setTimeout(r, 120)); // the overlay appears while the file hovers
+      const shown = document.querySelector('[data-testid=drop-overlay]')?.textContent ?? '';
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return shown;
+    }, name);
+    const noticeText = () => page.$eval('[data-testid=notice]', (e) => e.textContent).catch(() => '');
+    const modelState = () => page.$eval('[data-testid=model-controls]', (e) => e.dataset.state).catch(() => 'absent');
+    const hasStore = await page.evaluate(() => window.__dotbench.model?.available ?? false);
+    console.log(`METRIC 3D model store from src/device3d/customModel.ts: ${hasStore ? 'present' : 'not there yet (entry hidden, page works)'}`);
+
+    // without a store: the entry is absent and a dropped .glb is declined politely
+    await page.evaluate(() => window.__dotbench.ui.fakeModel(null));
+    await page.click('[data-testid=device-menu]');
+    check('model: without a model store the menu has no 3D model entry', (await modelState()) === 'absent' && !!(await page.$('[data-testid=device-export]')));
+    await page.keyboard.press('Escape');
+    const overlayNoStore = await drop('shell.glb');
+    await sleep(200);
+    check('model: without a store the drop overlay names apps only and a .glb is declined', /\.dotbench app/.test(overlayNoStore) && !/\.glb/.test(overlayNoStore) && /cannot load your own 3D model yet/.test(await noticeText()), await noticeText());
+
+    // with a store
+    await page.evaluate(() => window.__dotbench.ui.fakeModel({ status: 'none' }));
+    await page.click('[data-testid=device-menu]');
+    await sleep(150);
+    check('model: the Device menu shows the entry as Built-in, with one line of help and no legal copy', (await modelState()) === 'builtin' && (await page.$eval('[data-testid=model-name]', (e) => e.textContent)) === 'Built-in' && (await page.$eval('[data-testid=model-help]', (e) => e.textContent)) === 'A model you load stays in this browser; it is not uploaded.' && !/responsib|right to use|unofficial|affiliated/i.test(await page.evaluate(() => document.body.textContent)));
+    check('model: the picker takes .glb files', /\.glb/.test(await page.$eval('[data-testid=model-file-input]', (e) => e.accept)));
+    await page.keyboard.press('Escape');
+    const overlay = await drop('shell.glb');
+    await sleep(250);
+    check('model: the drop overlay says what happens to each kind of file', /\.dotbench app/.test(overlay) && /\.glb 3D model/.test(overlay) && /Any other file is left alone/.test(overlay), overlay);
+    check('model: a dropped .glb asks before it is used', !!(await page.$('[data-testid=model-offer]')) && (await modelState()) === 'absent' && (await page.evaluate(() => document.activeElement?.dataset.testid)) === 'model-offer-accept');
+    await page.keyboard.press('Escape');
+    await sleep(150);
+    check('model: Escape declines the offer and nothing changes', !(await page.$('[data-testid=model-offer]')) && (await page.evaluate(() => window.__dotbench.model.getState().status)) === 'none');
+    await drop('shell.glb');
+    await sleep(200);
+    await page.click('[data-testid=model-offer-accept]');
+    await sleep(400);
+    check('model: accepting loads it, says so and names it in the menu', /shell\.glb is now the device in the 3D view/.test(await noticeText()) && (await page.evaluate(() => window.__dotbench.model.getState().status)) === 'ready', await noticeText());
+    await page.click('[data-testid=device-menu]');
+    await sleep(150);
+    check('model: the entry shows the file name and offers the way back', (await page.$eval('[data-testid=model-name]', (e) => e.textContent)) === 'shell.glb' && !!(await page.$('[data-testid=model-reset]')));
+    await page.click('[data-testid=model-reset]');
+    await sleep(150);
+    check('model: Back to built-in restores the built-in model', (await modelState()) === 'builtin');
+    await page.evaluate(() => window.__dotbench.ui.fakeModel({ status: 'error', name: 'bad.glb', error: 'This file is not a binary glTF.', warnings: ['Header too short.'] }));
+    await sleep(150);
+    check('model: an error is readable and announced', (await modelState()) === 'error' && /Could not use bad\.glb\. This file is not a binary glTF\. The built-in model is shown instead\./.test(await page.$eval('[data-testid=model-error][role=alert]', (e) => e.textContent)));
+    await page.click('[data-testid=model-details]');
+    check('model: the details disclosure lists the warnings', (await page.$eval('[data-testid=model-details]', (e) => e.getAttribute('aria-expanded'))) === 'true' && /Header too short/.test(await page.$eval('[data-testid=model-warnings]', (e) => e.textContent)));
+    // the choices the store reports: its own shape (built-in choice + bundled file) ...
+    await page.evaluate(() => window.__dotbench.ui.fakeModel({ status: 'none', builtin: 'kode', bundled: 'ready', performance: true }));
+    await sleep(150);
+    const optLabels = () => page.$$eval('[data-testid=model-options] button', (els) => els.map((e) => `${e.textContent}${e.getAttribute('aria-pressed') === 'true' ? '*' : ''}`).join('|'));
+    check('model: Kode model, Simple model and My own are offered, the one in use is marked', (await optLabels()) === 'Kode model*|Simple model|My own…' && (await page.$eval('[data-testid=model-name]', (e) => e.textContent)) === 'Kode model', await optLabels());
+    await page.click('[data-testid=model-option-simple]');
+    await sleep(150);
+    check('model: choosing Simple model switches to it', (await page.evaluate(() => window.__dotbench.model.getState().builtin)) === 'simple' && (await optLabels()) === 'Kode model|Simple model*|My own…');
+    await page.evaluate(() => window.__dotbench.ui.fakeModel({ status: 'none', builtin: 'kode', bundled: 'missing', performance: true }));
+    await sleep(150);
+    check('model: when the bundled model is absent it is not offered and the simple one is in use', (await optLabels()) === 'Simple model*|My own…', await optLabels());
+    // ... or an explicit list with the store's own labels
+    await page.evaluate(() => window.__dotbench.ui.fakeModel({ status: 'none', selected: 'b', options: [{ id: 'a', label: 'Shell A' }, { id: 'b', label: 'Shell B' }] }));
+    await sleep(150);
+    check('model: an explicit list from the store is shown with its labels', (await optLabels()) === 'Shell A|Shell B*', await optLabels());
+    await page.evaluate(() => window.__dotbench.ui.fakeModel({ status: 'loading', name: 'big.glb' }));
+    await sleep(150);
+    check('model: loading is shown and the picker waits', (await modelState()) === 'loading' && (await page.$eval('[data-testid=model-pick]', (e) => e.disabled)));
+    await page.keyboard.press('Escape');
+    await drop('holiday.jpeg');
+    await sleep(200);
+    check('model: any other dropped file is declined politely, naming both kinds it accepts', /holiday\.jpeg cannot be opened here\. Drop a \.dotbench app or a \.glb 3D model\./.test(await noticeText()), await noticeText());
     await ctx.close();
   }
 

@@ -4,7 +4,7 @@
  * the rest of the page). Not part of the application bundle.
  *
  * URL parameters: ?debug (always wanted), led=RRGGBB, backlight=0..100,
- * panel=off, still (no clock tick).
+ * panel=off, still (no clock tick), model=simple|kode.
  */
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -14,6 +14,8 @@ import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../../device/types';
 import { InputController } from '../../lib/input';
 import { ZERO_POSE } from '../../lib/pose';
 import { ScreenPainter } from '../../lib/screen';
+
+import { customModel } from '../customModel';
 
 const Device3D = lazy(() => import('../../components/Device3D'));
 const q = new URLSearchParams(location.search);
@@ -93,7 +95,32 @@ const device = {
 const input = new InputController(() => device);
 const painter = new ScreenPainter();
 painter.attach(device);
-(window as unknown as Record<string, unknown>).__stand = { events, led: () => led.get(), device };
+// ?model=simple|kode picks the built-in model for this visit (the stand's own storage is fresh in the scripts)
+const pick = q.get('model');
+if (pick === 'simple' || pick === 'kode') customModel.setBuiltin(pick);
+(window as unknown as Record<string, unknown>).__stand = {
+  events,
+  led: () => led.get(),
+  device,
+  model: customModel,
+  /** Load a model file through the same store the page's menu uses. */
+  loadModel: async (base64: string, name: string) => {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    await customModel.load(new Blob([bytes]), name);
+    return customModel.getState();
+  },
+  /** The same file as it comes: one mesh per primitive, its own materials (for "before" measurements). */
+  loadModelRaw: async (base64: string, name: string) => {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const { prepareModel } = await import('../prepare');
+    customModel.debugShow(await prepareModel(bytes.buffer, { raw: true, maxTexture: 8192 }), name);
+    return customModel.getState();
+  },
+};
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 createRoot(document.getElementById('root')!).render(

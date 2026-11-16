@@ -10,6 +10,7 @@ import type { PanelId, PanelPlacement } from '../lib/layout';
 import { Device2D } from './Device2D';
 import { DeviceStatusCard } from './DeviceStatusCard';
 import { Icon } from './Glyphs';
+import { ModelOffer } from './ModelControls';
 import { NoticeBanner } from './Notice';
 
 const Device3D = lazy(() => import('./Device3D'));
@@ -197,6 +198,7 @@ export function DevicePane({ panels }: { panels?: Record<PanelId, PanelControl> 
           <Device2D zoom={phone ? 'fit' : zoom2d} crop={phone} inset={phone ? 0 : 8} />
         )}
         <DeviceStatusCard />
+        <ModelOffer />
         <NoticeBanner />
       </div>
       {!phone && <WelcomeHint />}

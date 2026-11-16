@@ -41,6 +41,7 @@ export async function neutral(page, vp) {
   await dropOverlay(page, false);
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
+  await clickIf(page, '[data-testid=model-offer-cancel]');
   await clickIf(page, '[data-testid=notice] button');
   if (kind === 'phone') await closeSheet(page);
   else {
@@ -105,6 +106,30 @@ async function ensureMotionObject(page, vp) {
   const active = await page.$eval('[data-testid=bench-object]', (e) => e.dataset.active === 'true').catch(() => true);
   if (!active) await clickIf(page, '[data-testid=toggle-near]');
   await sleep(150);
+}
+
+// shaped like the 3D code's store: a built-in choice, the state of the bundled file, a performance switch
+const BASE_MODEL = { builtin: 'kode', bundled: 'ready', performance: true };
+const MODEL_STATES = {
+  none: { status: 'none', ...BASE_MODEL },
+  loading: { ...BASE_MODEL, status: 'loading', name: 'my_custom_kode_dot_shell_with_a_long_file_name_v3_final.glb' },
+  ready: {
+    ...BASE_MODEL,
+    status: 'ready',
+    name: 'my_custom_kode_dot_shell_with_a_long_file_name_v3_final.glb',
+    sizeBytes: 3482112,
+    warnings: ['No node named "screen" was found: the app picture is drawn on the largest flat face of the model.', 'The model has 412,380 triangles; the 3D view may be slow on phones.', 'Node "btn_top" is missing: the top button cannot be pressed in 3D.'],
+  },
+  error: { builtin: 'simple', bundled: 'missing', performance: true, status: 'error', name: 'broken-export-from-the-cad-tool.glb', error: 'This file is not a binary glTF: the header says "glTF 1.0" and only version 2 can be read (offset 0x0000000C).', warnings: ['The file is 48.2 MB; files above 40 MB are not kept after a reload.'] },
+};
+/** Installs a stand-in for the 3D code's model store in a given state and opens the place that shows it. */
+async function showModel(page, vp, state, { details = false } = {}) {
+  await page.evaluate((s) => window.__dotbench.ui.fakeModel?.(s), MODEL_STATES[state]);
+  if (layoutOf(vp) === 'phone') await openSheet(page, 'settings');
+  else if (!(await has(page, '[data-testid=device-popover]'))) await clickIf(page, '[data-testid=device-menu]');
+  await sleep(250);
+  if (details) await clickIf(page, '[data-testid=model-details][aria-expanded=false]');
+  await page.evaluate(() => document.querySelector('[data-testid=model-controls]')?.scrollIntoView({ block: 'nearest' }));
 }
 
 let appsAdded = new WeakSet();
@@ -198,7 +223,7 @@ export function scenesFor(vp) {
 
   add('apps', async (p) => ensureUserApps(p, vp), { textHeavy: true, settle: 500 });
   if (!phone) {
-    add('device-menu', async (p) => clickIf(p, '[data-testid=device-menu]'), { textHeavy: true });
+    add('device-menu', async (p) => showModel(p, vp, 'none'), { textHeavy: true });
     add('drop', async (p) => dropOverlay(p, true));
   }
   add('notice', async (p) => {
@@ -224,6 +249,15 @@ export function scenesFor(vp) {
     }
   }, { textHeavy: true });
 
+  // "3D model": every state of the entry, and the question a dropped .glb asks (stand-in store, see showModel)
+  add('model-ready', async (p) => showModel(p, vp, 'ready', { details: true }), { newUi: true, textHeavy: true });
+  add('model-error', async (p) => showModel(p, vp, 'error', { details: true }), { newUi: true, textHeavy: true });
+  add('model-loading', async (p) => showModel(p, vp, 'loading'), { newUi: true });
+  add('model-offer', async (p) => {
+    await p.evaluate((s) => window.__dotbench.ui.fakeModel?.(s), MODEL_STATES.none);
+    await p.evaluate(() => window.__dotbench.ui.offerModel?.('my_custom_kode_dot_shell_with_a_long_file_name_v3_final.glb'));
+  }, { newUi: true, textHeavy: true });
+
   if (kind === 'tablet') {
     add('drawers-both', async (p) => {
       await setPanel(p, 'bench', true);
@@ -231,7 +265,10 @@ export function scenesFor(vp) {
     });
   }
   if (phone) {
-    add('sheet-settings', async (p) => openSheet(p, 'settings'), { textHeavy: true });
+    add('sheet-settings', async (p) => {
+      await p.evaluate((s) => window.__dotbench.ui.fakeModel?.(s), MODEL_STATES.none);
+      await openSheet(p, 'settings');
+    }, { textHeavy: true });
     add('phone-3d', async (p) => setView(p, vp, '3d'), {
       leave: async (p) => {
         await setView(p, vp, '2d');

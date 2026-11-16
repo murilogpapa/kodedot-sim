@@ -10,6 +10,7 @@ import { Popover } from './ui';
 
 const DOT: Record<string, string> = { idle: 'bg-ink3', booting: 'bg-primary', running: 'bg-ok', crashed: 'bg-err' };
 /** Below this many redraws per second the screen counts as steady (a clock ticking once a second is not an animation). */
+// 0 to 2 per second is what an idle LVGL app does; anything faster is shown as a frame rate.
 export const STEADY_BELOW_FPS = 5;
 
 /**

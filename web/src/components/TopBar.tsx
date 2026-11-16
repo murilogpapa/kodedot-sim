@@ -6,6 +6,7 @@ import { AppsList } from './AppsList';
 import { DeviceActions } from './DeviceMenu';
 import { LanguageSelect, MockToggle, RunButtons, ThemeChoice } from './Controls';
 import { Icon } from './Glyphs';
+import { ModelControls } from './ModelControls';
 import { Popover } from './ui';
 
 /** The product's name as shown to people, the same in every language. Internal identifiers (.dotbench packages, storage keys) keep the old name for now. */
@@ -26,7 +27,6 @@ export function About() {
   return (
     <p className="m-0 text-[13px] leading-snug text-ink2" data-testid="about">
       <strong className="font-semibold text-ink">{PRODUCT_NAME}</strong> · {t('app.descriptor')}
-      <span className="mt-0.5 block text-[12.5px]">{t('app.unofficial')}</span>
     </p>
   );
 }
@@ -87,6 +87,7 @@ function DeviceMenu() {
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchor={btn} label={t('device.menu')} width="21rem" align="end" testid="device-popover">
         <div className="flex flex-col gap-4">
+          <ModelControls onDone={() => setOpen(false)} />
           <DeviceActions onDone={() => setOpen(false)} />
           <MockToggle />
         </div>

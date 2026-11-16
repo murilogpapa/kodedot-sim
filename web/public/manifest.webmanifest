@@ -1,7 +1,7 @@
 {
   "name": "KodeDot Sim",
   "short_name": "KodeDot Sim",
-  "description": "A simulator for Kode Dot apps (unofficial, not affiliated with Kode): a simulated device you can touch, press and surround with test objects, running your real app in the browser.",
+  "description": "A simulator for Kode Dot apps: a simulated device you can touch, press and surround with test objects, running your real app in the browser.",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

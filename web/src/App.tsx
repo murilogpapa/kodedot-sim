@@ -16,7 +16,7 @@ import { useCoarsePointer } from './components/ui';
 
 /** Accepts .dotbench files dropped anywhere on the window. */
 function useWindowDrop() {
-  const { addBundleFile } = useHost();
+  const { openFile } = useHost();
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
     let depth = 0;
@@ -40,7 +40,7 @@ function useWindowDrop() {
       depth = 0;
       setDragging(false);
       const f = e.dataTransfer?.files[0];
-      if (f) void addBundleFile(f);
+      if (f) openFile(f);
     };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragover', over);
@@ -52,7 +52,7 @@ function useWindowDrop() {
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('drop', drop);
     };
-  }, [addBundleFile]);
+  }, [openFile]);
   return dragging;
 }
 
@@ -304,17 +304,36 @@ export default function App() {
     <>
       {isPhone(layout) ? <PhoneShell /> : <DeskShell />}
       <StatusAnnouncer />
-      {dragging && (
-        <div className="anim-fade pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-bg/85 p-6" data-testid="drop-overlay" data-layer="drop">
-          <div className="flex max-w-[26rem] flex-col items-center gap-3 rounded-3xl bg-card px-8 py-7 text-center shadow-[inset_0_0_0_2px_var(--ink)]">
-            <span className="icon-tile bg-primary !text-primaryink">
-              <Icon name="open" size={24} />
-            </span>
-            <strong className="font-heading text-[20px] font-bold leading-snug">{t('apps.dropOverlay')}</strong>
-            <span className="text-[14px] leading-snug text-ink2">{t('apps.dropOverlay.hint')}</span>
-          </div>
-        </div>
-      )}
+      {dragging && <DropOverlay />}
     </>
+  );
+}
+
+/** While a file is dragged over the page: what will happen to each kind of file, before it is dropped. */
+function DropOverlay() {
+  const { t } = useI18n();
+  const { model } = useHost();
+  const rows: { icon: 'open' | 'cube'; title: string; hint: string }[] = [{ icon: 'open', title: t('drop.app'), hint: t('drop.app.hint') }];
+  if (model.available) rows.push({ icon: 'cube', title: t('drop.model'), hint: t('drop.model.hint') });
+  return (
+    <div className="anim-fade pointer-events-none fixed inset-0 z-[80] flex items-center justify-center bg-bg/85 p-4" data-testid="drop-overlay" data-layer="drop">
+      <div className="flex w-full max-w-[27rem] flex-col gap-3 rounded-3xl bg-card p-6 shadow-[inset_0_0_0_2px_var(--ink)]">
+        <strong className="font-heading text-[20px] font-bold leading-snug">{t('apps.dropOverlay')}</strong>
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          {rows.map((r) => (
+            <li key={r.title} className="inner flex items-center gap-3 p-3">
+              <span className="icon-tile bg-primary !text-primaryink" style={{ width: 40, height: 40 }}>
+                <Icon name={r.icon} size={20} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[15px] font-semibold">{r.title}</span>
+                <span className="block text-[13.5px] leading-snug text-ink2">{r.hint}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <span className="text-[13.5px] leading-snug text-ink2">{t('drop.rest')}</span>
+      </div>
+    </div>
   );
 }

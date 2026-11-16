@@ -11,6 +11,8 @@ import { builtinKey, fetchBuiltinBytes, isBuiltinKey, loadBuiltins, pickStartApp
 import { InputController } from '../lib/input';
 import { isEditableTarget, keyToButton, ownsArrowKeys } from '../lib/keys';
 import { isPhone, useLayoutMode, type LayoutMode } from '../lib/layout';
+import { customModel } from '../device3d/customModel';
+import { ModelController, classifyFile, isModelStore, type CustomModelState, type CustomModelStore } from '../lib/modelChoice';
 import type { MotionPose } from '../device/motion';
 import { loadPref, safeLocal, savePref } from '../lib/prefs';
 import { ScreenPainter } from '../lib/screen';
@@ -53,6 +55,14 @@ export interface Host {
   /** Bumped when some part of the page asks for the app list (idle card, welcome hint); the picker or the phone sheet opens it. */
   appsRequest: number;
   requestApps(): void;
+  /** "Use my own 3D model": the controller over the 3D code's store (absent while that code has not landed). */
+  model: ModelController;
+  /** A dropped .glb waiting for the visitor's yes or no. */
+  modelOffer: File | null;
+  /** Any dropped or picked file: apps run, models are offered, the rest is declined politely. */
+  openFile(file: File): void;
+  applyModelFile(file: File): Promise<void>;
+  resolveModelOffer(accept: boolean): void;
   /** First-visit hint, until the visitor dismisses it. */
   welcome: boolean;
   dismissWelcome(): void;
@@ -97,7 +107,7 @@ export function HostProvider({ children }: { children: ReactNode }) {
   tRef.current = t;
 
   // long-lived services ------------------------------------------------------
-  const services = useRef<{ bench: BenchStore; painter: ScreenPainter; bundles: BundleStore | null } | null>(null);
+  const services = useRef<{ bench: BenchStore; painter: ScreenPainter; bundles: BundleStore | null; model: ModelController } | null>(null);
   if (!services.current) {
     let bundles: BundleStore | null = null;
     try {
@@ -105,9 +115,13 @@ export function HostProvider({ children }: { children: ReactNode }) {
     } catch {
       bundles = null;
     }
-    services.current = { bench: new BenchStore(safeLocal()), painter: new ScreenPainter(), bundles };
+    services.current = { bench: new BenchStore(safeLocal()), painter: new ScreenPainter(), bundles, model: new ModelController() };
   }
-  const { bench, painter, bundles: bundleStore } = services.current;
+  const { bench, painter, bundles: bundleStore, model } = services.current;
+  // the 3D code's own store; the controller tolerates anything that does not follow the contract
+  useEffect(() => {
+    if (!model.available && isModelStore(customModel)) model.setStore(customModel);
+  }, [model]);
 
   const [useMock, setUseMockState] = useState(() => loadPref<boolean>('dotbench.mock', false) === true);
   const [device, setDevice] = useState<KodeDevice>(() => createDevice(loadPref<boolean>('dotbench.mock', false) === true ? 'mock' : 'wasm'));
@@ -367,6 +381,41 @@ export function HostProvider({ children }: { children: ReactNode }) {
   const [tiltLink, setTiltLink] = useState(false);
   const applyPose = useCallback((p: MotionPose) => applyPoseToBench(bench, p, () => tRef.current('kind.motion.pose')), [bench]);
 
+  // own 3D model -----------------------------------------------------------
+  const [modelOffer, setModelOffer] = useState<File | null>(null);
+  const applyModelFile = useCallback(
+    async (file: File) => {
+      const r = await model.use(file, file.name);
+      if (r.ok) {
+        if (!glFailed) setViewMode('3d'); // show what was just loaded
+        return say('info', 'notice.modelUsed', { name: file.name });
+      }
+      if (r.reason === 'unavailable') return say('info', 'notice.modelUnavailable');
+      if (r.reason === 'not-glb') return say('error', 'notice.notGlb');
+      say('error', 'notice.modelFail', { name: file.name, error: r.message || '?' });
+    },
+    [model, glFailed, setViewMode, say],
+  );
+  const openFile = useCallback(
+    (file: File) => {
+      const kind = classifyFile(file.name);
+      if (kind === 'app') return void addBundleFile(file);
+      if (kind === 'other') return say('error', 'notice.dropOther', { name: file.name });
+      if (!model.available) return say('info', 'notice.modelUnavailable');
+      setModelOffer(file); // a model replaces what the 3D view shows: ask first
+    },
+    [addBundleFile, model, say],
+  );
+  const resolveModelOffer = useCallback(
+    (accept: boolean) => {
+      setModelOffer((file) => {
+        if (accept && file) void applyModelFile(file);
+        return null;
+      });
+    },
+    [applyModelFile],
+  );
+
   // debug hook for the headless checks (?debug in the URL)
   useEffect(() => {
     if (!new URLSearchParams(location.search).has('debug')) return;
@@ -375,14 +424,44 @@ export function HostProvider({ children }: { children: ReactNode }) {
       bench,
       input,
       painter,
+      model,
       // lets the layout audit walk every theme and language on one page load
       ui: {
+        // stands in for the 3D code's store, so every state of the "3D model" entry can be shown and audited
+        fakeModel: (state: CustomModelState | null) => {
+          if (!state) return model.setStore(null);
+          const listeners = new Set<() => void>();
+          let cur = state;
+          const store: CustomModelStore = {
+            getState: () => cur,
+            subscribe: (l) => (listeners.add(l), () => listeners.delete(l)),
+            load: async (_f, name) => {
+              cur = { ...cur, status: 'ready', name, sizeBytes: _f.size, warnings: [], error: undefined };
+              for (const l of listeners) l();
+            },
+            remove: async () => {
+              cur = { status: 'none', builtin: cur.builtin, bundled: cur.bundled, performance: cur.performance, options: cur.options, selected: cur.options?.[0]?.id };
+              for (const l of listeners) l();
+            },
+            setBuiltin: (choice) => {
+              cur = { ...cur, builtin: choice };
+              for (const l of listeners) l();
+            },
+            setOptions: async (o) => {
+              cur = { ...cur, performance: o.performance ?? cur.performance };
+              for (const l of listeners) l();
+            },
+            ...(state.options ? { select: async (id: string) => ((cur = { ...cur, selected: id }), listeners.forEach((l) => l())) } : {}),
+          };
+          model.setStore(store);
+        },
+        offerModel: (name: string) => setModelOffer(new File([new Uint8Array(1024)], name)),
         setTheme: (v: Theme) => setTheme(v),
         setLocale,
         notify: (kind: Notice['kind'], key: TKey, vars?: Vars) => say(kind, key, vars),
       },
     };
-  }, [bench, input, painter, setLocale, say]);
+  }, [bench, input, painter, setLocale, say, model]);
 
   // input: keyboard, visibility ---------------------------------------------
   useEffect(() => {
@@ -510,6 +589,11 @@ export function HostProvider({ children }: { children: ReactNode }) {
     launching: launching && device.info.kind === 'wasm',
     appsRequest,
     requestApps,
+    model,
+    modelOffer,
+    openFile,
+    applyModelFile,
+    resolveModelOffer,
     welcome,
     dismissWelcome,
     theme,

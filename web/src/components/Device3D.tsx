@@ -2,9 +2,15 @@
  * 3D device view (three + @react-three/fiber). Lazy-loaded by DevicePane so the
  * 2D page never downloads three.js.
  *
- * The model itself lives in src/device3d/ (geometry, materials' textures, the
- * studio light) and src/lib/bodyModel.ts (dimensions and maths, unit-tested).
- * This file wires it to the page:
+ * Three models can be on show (src/device3d/customModel.ts decides which):
+ *   - the maker's model bundled at /device/model.glb (the default when present),
+ *   - the procedural "simple" model built in code (src/device3d/, always there),
+ *   - a model the user loaded from his own computer.
+ * All three share the studio light, the ground shadow, the live picture, the
+ * invisible press targets, the pressed animations and the LED glow below.
+ *
+ * Rendering is on demand: a frame is drawn only when the view, the picture, a
+ * control or the LED changes, and never while the tab or the canvas is hidden.
  *
  * Interaction (all drags use window listeners, so leaving the canvas is safe):
  *   glass pointerdown  -> touch input (point on the glass -> 410x502), no orbit
@@ -14,7 +20,7 @@
  * is on it is mirrored to the bench's Movimento object, and the sliders move it.
  */
 import { useFrame, useThree, Canvas, type ThreeEvent } from '@react-three/fiber';
-import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, Suspense } from 'react';
 import {
   AdditiveBlending,
   Box3,
@@ -35,12 +41,12 @@ import {
   Plane,
   Raycaster,
   SRGBColorSpace,
+  type Texture,
   Vector2,
   Vector3,
 } from 'three';
 import type { MotionPose } from '../device/motion';
 import type { ButtonId, KodeDevice } from '../device/types';
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../device/types';
 import type { InputController } from '../lib/input';
 import {
   BUTTON_PROUD_MM_ESTIMATE,
@@ -59,13 +65,14 @@ import { SPEC, metrics } from '../lib/geometry';
 import { ORBIT_LIMITS, ZERO_POSE, clampPose, poseToEuler, samePose } from '../lib/pose';
 import type { ScreenPainter } from '../lib/screen';
 import { buildBodyMesh } from '../device3d/bodyMesh';
+import { customModel, type ActiveModel } from '../device3d/customModel';
 import type { MeshData } from '../device3d/meshBuilder';
 import { buildButton, buildDpadArm, buildGlass, buildLed, buildPad, buildScreen, buildScrew, buildWindow } from '../device3d/parts';
 import { footprint } from '../device3d/stage';
 import { makeStudioEnvironment } from '../device3d/studio';
 import { makeGrainNormalMap, makeOcclusionTexture, makeShadowTexture } from '../device3d/textures';
+import type { PreparedModel } from '../device3d/prepare';
 import { backlightFactor } from './Device2D';
-import { loadGlbModel, type GlbModel } from './glbModel';
 
 const M = metrics(SPEC);
 const D = bodyDims(M);
@@ -84,6 +91,8 @@ const INLAY_LIFT = 0.28;
 /** The light guide is translucent: it never looks as dark as an opaque part, even when the LED is off. */
 const LED_IDLE_GLOW = 0.22;
 const ENV_INTENSITY = 1.0;
+/** How strongly dark glossy parts of a loaded model mirror the (darker) studio. */
+const FILE_GLOSS_REFLECTION = 0.6;
 
 // ---- staging
 const CAMERA_FOV = 30;
@@ -127,6 +136,29 @@ function toGeometry(m: MeshData): BufferGeometry {
 
 const noRaycast = () => null;
 
+function buildSimple() {
+  const t0 = performance.now();
+  const body = buildBodyMesh(D);
+  const top = buildButton('top', D);
+  const bottom = buildButton('bottom', D);
+  const geo = {
+    body: toGeometry(body),
+    glass: toGeometry(buildGlass(D)),
+    window: toGeometry(buildWindow(D)),
+    pads: [0, 1, 2, 3, 4].map((i) => toGeometry(buildPad(i, D))),
+    screw: toGeometry(buildScrew(D)),
+    topBody: toGeometry(top.body),
+    topInlay: toGeometry(top.inlay),
+    bottomBody: toGeometry(bottom.body),
+    bottomInlay: toGeometry(bottom.inlay),
+    dpadArm: toGeometry(buildDpadArm(D)),
+  };
+  const all = [geo.body, geo.glass, geo.window, ...geo.pads, geo.screw, geo.topBody, geo.topInlay, geo.bottomBody, geo.bottomInlay, geo.dpadArm];
+  // + the picture, the gloss over it and the light guide, which every model has
+  const triangles = all.reduce((s, g) => s + (g.index?.count ?? 0) / 3, 0) + 3 * ((geo.dpadArm.index?.count ?? 0) / 3);
+  return { ...geo, all, triangles, shellTriangles: body.indices.length / 3, buildMs: performance.now() - t0 };
+}
+
 // ------------------------------------------------------------------- canvas
 export default function Device3D(props: Device3DProps) {
   return (
@@ -158,30 +190,29 @@ export default function Device3D(props: Device3DProps) {
 function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSignal, reducedMotion }: Device3DProps) {
   const { gl, camera, size, invalidate, scene } = useThree();
 
-  // ---- static geometry
-  const built = useMemo(() => {
-    const t0 = performance.now();
-    const body = buildBodyMesh(D);
-    const top = buildButton('top', D);
-    const bottom = buildButton('bottom', D);
-    const geo = {
-      body: toGeometry(body),
-      glass: toGeometry(buildGlass(D)),
-      screen: toGeometry(buildScreen(D)),
-      led: toGeometry(buildLed(D)),
-      window: toGeometry(buildWindow(D)),
-      pads: [0, 1, 2, 3, 4].map((i) => toGeometry(buildPad(i, D))),
-      screw: toGeometry(buildScrew(D)),
-      topBody: toGeometry(top.body),
-      topInlay: toGeometry(top.inlay),
-      bottomBody: toGeometry(bottom.body),
-      bottomInlay: toGeometry(bottom.inlay),
-      dpadArm: toGeometry(buildDpadArm(D)),
-    };
-    const all = [geo.body, geo.glass, geo.screen, geo.led, geo.window, ...geo.pads, geo.screw, geo.topBody, geo.topInlay, geo.bottomBody, geo.bottomInlay, geo.dpadArm];
-    const triangles = all.reduce((s, g) => s + (g.index?.count ?? 0) / 3, 0) + 3 * ((geo.dpadArm.index?.count ?? 0) / 3);
-    return { ...geo, all, triangles, shellTriangles: body.indices.length / 3, buildMs: performance.now() - t0 };
+  // ---- which model
+  const active = useSyncExternalStore(customModel.subscribe, customModel.getActive);
+  useEffect(() => {
+    void customModel.ensureBundled();
   }, []);
+  // a context without WebGL 2 is taken as too weak for the detailed bundled model
+  const shown: ActiveModel = active.kind === 'kode' && !gl.capabilities.isWebGL2 ? { kind: 'simple' } : active;
+  const prepared: PreparedModel | null = shown.kind === 'kode' || shown.kind === 'custom' ? shown.model : null;
+  const kind = shown.kind;
+
+  // ---- geometry every model needs: the picture and the overlay light guide
+  const common = useMemo(() => ({ screen: toGeometry(buildScreen(D)), led: toGeometry(buildLed(D)) }), []);
+  // ---- the procedural model, built the first time it is shown
+  const simpleCache = useRef<ReturnType<typeof buildSimple> | null>(null);
+  const simple = useMemo(() => (kind === 'simple' ? (simpleCache.current ??= buildSimple()) : null), [kind]);
+  useEffect(
+    () => () => {
+      simpleCache.current?.all.forEach((g) => g.dispose());
+      common.screen.dispose();
+      common.led.dispose();
+    },
+    [common],
+  );
 
   // ---- materials
   const mats = useMemo(() => {
@@ -211,77 +242,69 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
       gold: new MeshStandardMaterial({ color: '#f0b246', roughness: 0.34, metalness: 0.6, vertexColors: true }),
       silver: new MeshStandardMaterial({ color: '#e4e5e8', roughness: 0.32, metalness: 0.6, vertexColors: true }),
       led: new MeshStandardMaterial({ color: LED_OFF, roughness: 0.35, emissive: new Color(LED_OFF), emissiveIntensity: LED_IDLE_GLOW, vertexColors: true }),
+      // the same two for meshes of a loaded file (no baked occlusion in their vertices)
+      ledFile: new MeshStandardMaterial({ color: LED_OFF, roughness: 0.35, emissive: new Color(LED_OFF), emissiveIntensity: LED_IDLE_GLOW }),
+      glassFile: new MeshStandardMaterial({ color: GLASS_BLACK, roughness: 0.1, metalness: 0, envMapIntensity: GLASS_REFLECTION }),
       hit: new MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: DoubleSide }), // invisible, still ray-cast
       shadow: new MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, toneMapped: false, opacity: 0.5 }),
     };
   }, [painter]);
 
   // ---- studio light (prefiltered environment; see device3d/studio.ts)
+  const glossEnv = useRef<Texture | null>(null);
   useEffect(() => {
     const env = makeStudioEnvironment(gl);
     const gloss = makeStudioEnvironment(gl, true); // what the glass mirrors: the studio with a black flag in front
+    glossEnv.current = gloss.texture;
     scene.environment = env.texture;
     scene.environmentIntensity = ENV_INTENSITY;
-    for (const m of [mats.glass, mats.gloss, mats.window]) {
+    const own = [mats.glass, mats.gloss, mats.window, mats.glassFile];
+    for (const m of own) {
       m.envMap = gloss.texture;
       m.needsUpdate = true;
     }
     invalidate();
     return () => {
       scene.environment = null;
-      for (const m of [mats.glass, mats.gloss, mats.window]) m.envMap = null;
+      glossEnv.current = null;
+      for (const m of own) m.envMap = null;
       env.dispose();
       gloss.dispose();
     };
   }, [gl, scene, mats, invalidate]);
 
-  // optional drop-in model: /device/model.glb (see public/device/MODEL.md)
-  const [glb, setGlb] = useState<GlbModel | null>(null);
+  // ---- a loaded model: its glass, light guide and glossy parts get the viewer's materials and reflections
   useEffect(() => {
-    let dead = false;
-    void loadGlbModel().then((m) => {
-      if (!dead && m) setGlb(m);
-    });
+    if (!prepared) return;
+    for (const m of prepared.glass) m.material = mats.glassFile;
+    for (const m of prepared.led) m.material = mats.ledFile;
+    for (const m of prepared.glossy) {
+      m.envMap = glossEnv.current;
+      m.envMapIntensity = FILE_GLOSS_REFLECTION;
+      m.needsUpdate = true;
+    }
+    restZ.current = new WeakMap();
+    invalidate();
     return () => {
-      dead = true;
+      for (const m of prepared.glossy) m.envMap = null;
     };
-  }, []);
-  // the glTF convention puts UV (0,0) at the top-left of an image: same canvas, not flipped
-  const glbScreenTex = useMemo(() => {
-    if (!glb) return null;
-    const t = new CanvasTexture(painter.canvas);
-    t.colorSpace = SRGBColorSpace;
-    t.minFilter = LinearFilter;
-    t.magFilter = LinearFilter;
-    t.generateMipmaps = false;
-    t.flipY = false;
-    return t;
-  }, [glb, painter]);
-  const glbScreenMat = useMemo(() => (glbScreenTex ? new MeshBasicMaterial({ map: glbScreenTex, toneMapped: false }) : null), [glbScreenTex]);
-  useEffect(
-    () => () => {
-      glbScreenTex?.dispose();
-      glbScreenMat?.dispose();
-    },
-    [glbScreenTex, glbScreenMat],
-  );
+  }, [prepared, mats, invalidate]);
 
   useEffect(
     () => () => {
-      built.all.forEach((g) => g.dispose());
       mats.textures.forEach((t) => t.dispose());
       Object.values(mats).forEach((m) => (m as { dispose?: () => void }).dispose?.());
     },
-    [built, mats],
+    [mats],
   );
 
   // ---- refs
   const model = useRef<Group>(null);
   const glassMesh = useRef<Mesh | null>(null);
-  const ledMats = useRef<MeshStandardMaterial[]>([]);
   const ledLight = useRef<PointLight>(null);
   const shadowMesh = useRef<Mesh>(null);
-  const glbRest = useRef(new Map<Object3D, number>());
+  const restZ = useRef(new WeakMap<Object3D, number>());
+  const awake = useRef(true);
   const topGrp = useRef<Group>(null);
   const botGrp = useRef<Group>(null);
   const dpadTilt = useRef<Group>(null);
@@ -292,17 +315,19 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
   const zoom = useRef({ target: 1, display: 1 });
   const press = useRef<Record<ButtonId, number>>({ top: 0, bottom: 0, up: 0, down: 0, left: 0, right: 0 });
   const cancelInteraction = useRef<(() => void) | null>(null);
-  const live = useRef({ tiltLink, onPose, reducedMotion });
-  live.current = { tiltLink, onPose, reducedMotion };
+  const live = useRef({ tiltLink, onPose, reducedMotion, kind });
+  live.current = { tiltLink, onPose, reducedMotion, kind };
   const dragging = useRef(false);
 
-  // ---- subscriptions that wake the demand loop
+  // ---- subscriptions that wake the demand loop (nothing is drawn while the tab or the canvas is out of sight)
   useEffect(() => {
-    const wake = () => invalidate();
+    const wake = () => {
+      if (awake.current) invalidate();
+    };
     const offs = [
       painter.onFrame(() => {
+        if (!awake.current) return; // the texture is refreshed when the view comes back
         mats.screenTex.needsUpdate = true;
-        if (glbScreenTex) glbScreenTex.needsUpdate = true;
         invalidate();
       }),
       device.led.subscribe(wake),
@@ -311,10 +336,30 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
       device.panelOn.subscribe(wake),
       input.pressed.subscribe(wake),
     ];
+    let onScreen = true;
+    const update = () => {
+      const now = onScreen && document.visibilityState !== 'hidden';
+      if (now && !awake.current) {
+        awake.current = true;
+        mats.screenTex.needsUpdate = true;
+        invalidate();
+      } else awake.current = now;
+    };
+    const io = typeof IntersectionObserver === 'function' ? new IntersectionObserver((es) => { onScreen = es[es.length - 1].isIntersecting; update(); }) : null;
+    io?.observe(gl.domElement);
+    document.addEventListener('visibilitychange', update);
     mats.screenTex.needsUpdate = true;
     invalidate();
-    return () => offs.forEach((o) => o());
-  }, [device, input, painter, mats, glbScreenTex, invalidate]);
+    return () => {
+      offs.forEach((o) => o());
+      io?.disconnect();
+      document.removeEventListener('visibilitychange', update);
+      awake.current = true;
+    };
+  }, [device, input, painter, mats, gl, invalidate]);
+
+  // a different model: draw it
+  useEffect(() => invalidate(), [kind, prepared, invalidate]);
 
   // ---- pose in: tilt link mirrors the store; otherwise the view is local
   useEffect(() => {
@@ -345,9 +390,8 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
   const ray = useMemo(() => new Raycaster(), []);
   const tmp = useMemo(() => ({ v: new Vector3(), n: new Vector3(), p: new Plane(), ndc: new Vector2(), box: new Box3() }), []);
 
-  const clampPx = (x: number, y: number) => ({ x: Math.min(SCREEN_WIDTH - 1, Math.max(0, Math.floor(x))), y: Math.min(SCREEN_HEIGHT - 1, Math.max(0, Math.floor(y))) });
 
-  /** Screen pixel under a client point. Procedural glass: exact plane maths (keeps tracking off the glass). Drop-in model: the hit UV. */
+  /** Screen pixel under a client point: exact plane maths on the picture's own rectangle (keeps tracking off the glass), for every model. */
   const glassPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const mesh = glassMesh.current;
     if (!mesh) return null;
@@ -355,10 +399,6 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
     tmp.ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(tmp.ndc, camera);
     mesh.updateWorldMatrix(true, false);
-    if (glb) {
-      const hit = ray.intersectObject(mesh, false)[0];
-      return hit?.uv ? clampPx(hit.uv.x * SCREEN_WIDTH, hit.uv.y * SCREEN_HEIGHT) : null;
-    }
     tmp.v.setFromMatrixPosition(mesh.matrixWorld);
     tmp.n.set(0, 0, 1).transformDirection(mesh.matrixWorld);
     tmp.p.setFromNormalAndCoplanarPoint(tmp.n, tmp.v);
@@ -529,23 +569,16 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
         if (!g) return null;
         g.updateWorldMatrix(true, true);
         camera.updateMatrixWorld();
-        const nodeCentre = (o: Object3D) => projectWorld(tmp.box.setFromObject(o).getCenter(new Vector3()));
         if (spec.startsWith('glass:')) {
           const [x, y] = spec.slice(6).split(',').map(Number);
           const mesh = glassMesh.current;
           if (!mesh) return null;
-          if (glb) {
-            const bb = mesh.geometry.boundingBox ?? (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox!);
-            const u = (x + 0.5) / SCREEN_WIDTH, v = (y + 0.5) / SCREEN_HEIGHT;
-            return projectWorld(mesh.localToWorld(new Vector3(bb.min.x + u * (bb.max.x - bb.min.x), bb.max.y - v * (bb.max.y - bb.min.y), (bb.min.z + bb.max.z) / 2)));
-          }
           const q = screenToGlassMm(x, y, D);
           return projectWorld(mesh.localToWorld(new Vector3(q.x, q.y, 0)));
         }
         const id = (spec.startsWith('dpad:') ? spec.slice(5) : spec) as ButtonId;
         if (!(id in press.current)) return null;
-        if (glb) return nodeCentre(glb.press[id]);
-        return projectWorld(g.localToWorld(new Vector3(...controlCentre(id, D))));
+        return projectWorld(g.localToWorld(new Vector3(...hitCentre(id))));
       },
       scene: () => scene,
       textureVersion: () => mats.screenTex.version,
@@ -569,7 +602,18 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
       },
       /** Controls currently held, as the input layer sees them. */
       pressed: () => [...input.pressed.get()],
-      info: () => ({ triangles: built.triangles, shellTriangles: built.shellTriangles, buildMs: built.buildMs, calls: gl.info.render.calls, rendered: gl.info.render.triangles, glb: !!glb, webgl2: gl.capabilities.isWebGL2 }),
+      info: () => ({
+        model: kind,
+        triangles: prepared ? prepared.stats.triangles + 2 * ((common.screen.index?.count ?? 0) / 3) : simple ? simple.triangles + 2 * ((common.screen.index?.count ?? 0) / 3) + (common.led.index?.count ?? 0) / 3 : 0,
+        shellTriangles: simple?.shellTriangles ?? 0,
+        buildMs: prepared ? prepared.stats.prepareMs : (simple?.buildMs ?? 0),
+        stats: prepared?.stats ?? null,
+        warnings: prepared?.warnings ?? [],
+        calls: gl.info.render.calls,
+        rendered: gl.info.render.triangles,
+        webgl2: gl.capabilities.isWebGL2,
+        dpr: gl.getPixelRatio(),
+      }),
       /** Renders `n` frames back to back and returns the mean milliseconds per frame (GPU work included). */
       bench: (n = 60) => {
         const ctx = gl.getContext();
@@ -586,7 +630,7 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
     return () => {
       delete w.__dotbench3d;
     };
-  }, [gl, camera, scene, built, mats, glb, tmp, input, invalidate]);
+  }, [gl, camera, scene, simple, common, prepared, kind, mats, tmp, input, invalidate]);
 
   // ---- per-frame animation
   const baseDist = useRef(300);
@@ -619,7 +663,7 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
       // ground shadow follows the footprint
       const sh = shadowMesh.current;
       if (sh) {
-        sh.visible = view.current.shadow;
+        sh.visible = view.current.shadow && live.current.kind !== 'pending';
         g.updateMatrix();
         const f = footprint(g.matrix.elements, D);
         const groundY = -(D.hh + GROUND_GAP_MM);
@@ -662,39 +706,39 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
     const P = press.current;
     if (topGrp.current) topGrp.current.position.z = -P.top * BUTTON_TRAVEL_MM;
     if (botGrp.current) botGrp.current.position.z = -P.bottom * BUTTON_TRAVEL_MM;
-    const tilt = dpadTilt.current;
-    if (tilt) {
+    const lean = (tilt: Object3D, rest: number) => {
       // one rocker: it leans towards the held arm and sinks a little
       tilt.rotation.x = (P.up - P.down) * -DPAD_TILT_RAD;
       tilt.rotation.y = (P.right - P.left) * DPAD_TILT_RAD;
-      tilt.position.z = -Math.max(P.up, P.down, P.left, P.right) * 0.25;
-    }
-    if (glb) {
-      for (const [id, node] of Object.entries(glb.press) as [ButtonId, Object3D][]) {
-        const rest = glbRest.current.get(node) ?? node.position.z;
-        glbRest.current.set(node, rest);
-        node.position.z = rest - P[id] * BUTTON_TRAVEL_MM;
-      }
+      tilt.position.z = rest - Math.max(P.up, P.down, P.left, P.right) * 0.25;
+    };
+    if (dpadTilt.current) lean(dpadTilt.current, 0);
+    if (prepared) {
+      const rest = (node: Object3D) => {
+        let z = restZ.current.get(node);
+        if (z === undefined) restZ.current.set(node, (z = node.position.z));
+        return z;
+      };
+      for (const [id, node] of Object.entries(prepared.press) as [ButtonId, Object3D][]) node.position.z = rest(node) - P[id] * BUTTON_TRAVEL_MM;
+      if (prepared.rocker) lean(prepared.rocker, rest(prepared.rocker));
     }
 
     // screen: backlight dim / panel off. Same dimming curve as the 2D view (an sRGB-space multiply).
     const bl = device.panelOn.get() ? backlightFactor(device.backlight.get()) : 0;
     mats.screen.color.setRGB(bl, bl, bl, SRGBColorSpace);
-    glbScreenMat?.color.setRGB(bl, bl, bl, SRGBColorSpace);
 
     // LED: light guide glows with the live colour
     const led = device.led.get();
     const on = led.r + led.g + led.b > 0;
-    const ledMs = glb ? ledMats.current : [mats.led];
-    for (const lm of ledMs) {
+    for (const lm of [mats.led, mats.ledFile]) {
       if (on) {
         // mostly self-lit, so the hue survives the tone mapping instead of burning out to white
         lm.color.setRGB(0.12 + (led.r / 255) * 0.4, 0.12 + (led.g / 255) * 0.4, 0.12 + (led.b / 255) * 0.4);
-        lm.emissive?.setRGB(led.r / 255, led.g / 255, led.b / 255);
+        lm.emissive.setRGB(led.r / 255, led.g / 255, led.b / 255);
         lm.emissiveIntensity = 1.0;
       } else {
         lm.color.set(LED_OFF);
-        lm.emissive?.set(LED_OFF);
+        lm.emissive.set(LED_OFF);
         lm.emissiveIntensity = LED_IDLE_GLOW;
       }
     }
@@ -706,27 +750,35 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
     if (busy) invalidate();
   });
 
-  // ---- drop-in model wiring
-  const glbDown = (e: ThreeEvent<PointerEvent>) => {
+  // ---- a loaded model: a press on one of its control meshes holds that control, anything else turns the device
+  const fileDown = (e: ThreeEvent<PointerEvent>) => {
+    if (!prepared) return;
     for (let n: Object3D | null = e.object; n; n = n.parent) {
-      if (n === glb?.screenNode) return onGlassDown(e);
-      for (const [id, node] of Object.entries(glb?.press ?? {}) as [ButtonId, Object3D][]) if (n === node) return holdButton(id, e);
+      if (n === prepared.rocker) {
+        const local = n.worldToLocal(e.point.clone());
+        const dir = dpadHit(local.x, local.y, D);
+        return dir ? holdButton(dir, e) : e.stopPropagation();
+      }
+      for (const [id, node] of Object.entries(prepared.press) as [ButtonId, Object3D][]) if (n === node) return holdButton(id, e);
     }
     return onBodyDown(e);
   };
-  useEffect(() => {
-    if (!glb || !glbScreenMat) return;
-    glbRest.current.clear();
-    glassMesh.current = glb.screen;
-    glb.screen.material = glbScreenMat;
-    ledMats.current = glb.ledMaterials;
-    invalidate();
-    return () => {
-      glassMesh.current = null;
-    };
-  }, [glb, glbScreenMat, invalidate]);
 
+  // ---- where things are for the model on show
   const zf = D.zf;
+  const rect = prepared ? prepared.screen : { cx: D.screen.cx, cy: D.screen.cy, w: D.screen.w, h: D.screen.h, z: zf };
+  const screenScale: [number, number, number] = [rect.w / D.screen.w, rect.h / D.screen.h, 1];
+  const hitCentre = (id: ButtonId): [number, number, number] => {
+    if (!prepared) return controlCentre(id, D);
+    if (id === 'top' || id === 'bottom') return [prepared.hit[id][0], prepared.hit[id][1], prepared.hit[id][2] - 0.1];
+    const k = D.dpad.half * 0.68;
+    const o = { up: [0, k], down: [0, -k], left: [-k, 0], right: [k, 0] }[id];
+    return [prepared.hit.dpad[0] + o[0], prepared.hit.dpad[1] + o[1], prepared.hit.dpad[2]];
+  };
+  const hitTop: Record<'top' | 'bottom' | 'dpad', [number, number, number]> = prepared
+    ? prepared.hit
+    : { top: [D.buttons.top.x, D.buttons.top.y, zf + BUTTON_PROUD_MM_ESTIMATE], bottom: [D.buttons.bottom.x, D.buttons.bottom.y, zf + BUTTON_PROUD_MM_ESTIMATE], dpad: [D.dpad.x, D.dpad.y, zf + DPAD_PROUD_MM_ESTIMATE] };
+  const frontZ = prepared ? prepared.analysis.frontZ : zf;
   const armNames = ['dpad_right', 'dpad_up', 'dpad_left', 'dpad_down'] as const;
   const armIds: ButtonId[] = ['right', 'up', 'left', 'down'];
   const dpadHitSize = (D.dpad.half + DPAD_HIT_GROW_MM) * 2;
@@ -744,27 +796,20 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
       </mesh>
 
       <group ref={model}>
-        {glb ? (
-          <primitive object={glb.root} onPointerDown={glbDown} onDoubleClick={onBodyDouble} />
-        ) : (
+        {/* the model itself */}
+        {prepared && <primitive object={prepared.root} onPointerDown={fileDown} onDoubleClick={onBodyDouble} />}
+        {simple && (
           <>
-            <mesh name="body" geometry={built.body} material={mats.body} onPointerDown={onBodyDown} onDoubleClick={onBodyDouble} />
-
-            {/* black glass (flush), the lit picture on it, and the glass's reflection over the picture */}
-            <mesh name="glass" geometry={built.glass} material={mats.glass} onPointerDown={onBodyDown} />
-            <mesh name="screen" ref={glassMesh} geometry={built.screen} material={mats.screen} position={[D.screen.cx, D.screen.cy, zf + 0.012]} onPointerDown={onGlassDown} />
-            <mesh geometry={built.screen} material={mats.gloss} position={[D.screen.cx, D.screen.cy, zf + 0.024]} raycast={noRaycast} renderOrder={2} />
-
-            {/* light guide */}
-            <mesh name="led" geometry={built.led} material={mats.led} onPointerDown={onBodyDown} />
-            <pointLight ref={ledLight} position={[D.led.bounds.x1 - 2, D.led.bounds.y1 - 2, zf + 5]} intensity={0} distance={60} decay={2} />
+            <mesh name="body" geometry={simple.body} material={mats.body} onPointerDown={onBodyDown} onDoubleClick={onBodyDouble} />
+            <mesh name="glass" geometry={simple.glass} material={mats.glass} onPointerDown={onBodyDown} />
+            <mesh name="led" geometry={common.led} material={mats.led} onPointerDown={onBodyDown} />
 
             {/* right wall window; back: contact pads (first one silver) and the screw */}
-            <mesh geometry={built.window} material={mats.window} onPointerDown={onBodyDown} />
-            {built.pads.map((g, i) => (
+            <mesh geometry={simple.window} material={mats.window} onPointerDown={onBodyDown} />
+            {simple.pads.map((g, i) => (
               <mesh key={i} geometry={g} material={i === 0 ? mats.silver : mats.gold} onPointerDown={onBodyDown} />
             ))}
-            <mesh geometry={built.screw} material={mats.silver} onPointerDown={onBodyDown} />
+            <mesh geometry={simple.screw} material={mats.silver} onPointerDown={onBodyDown} />
 
             {/* round buttons: black body with a coloured inlay, moving as one */}
             {(['top', 'bottom'] as const).map((id) => {
@@ -772,24 +817,42 @@ function Scene({ device, input, painter, storePose, tiltLink, onPose, resetSigna
               return (
                 <group key={id} position={[b.x, b.y, zf]}>
                   <group ref={id === 'top' ? topGrp : botGrp} name={id === 'top' ? 'btn_top' : 'btn_bottom'}>
-                    <mesh geometry={id === 'top' ? built.topBody : built.bottomBody} material={mats.button} onPointerDown={(e) => holdButton(id, e)} />
-                    <mesh geometry={id === 'top' ? built.topInlay : built.bottomInlay} material={id === 'top' ? mats.inlayTop : mats.inlayBot} onPointerDown={(e) => holdButton(id, e)} />
+                    <mesh geometry={id === 'top' ? simple.topBody : simple.bottomBody} material={mats.button} onPointerDown={(e) => holdButton(id, e)} />
+                    <mesh geometry={id === 'top' ? simple.topInlay : simple.bottomInlay} material={id === 'top' ? mats.inlayTop : mats.inlayBot} onPointerDown={(e) => holdButton(id, e)} />
                   </group>
-                  <mesh position={[0, 0, BUTTON_PROUD_MM_ESTIMATE + 0.15]} material={mats.hit} onPointerDown={(e) => holdButton(id, e)}>
-                    <circleGeometry args={[buttonHitRadius(id, D), 32]} />
-                  </mesh>
                 </group>
               );
             })}
 
             {/* d-pad: four arm meshes on one rocker */}
-            <group ref={dpadRest} position={[D.dpad.x, D.dpad.y, zf]}>
+            <group position={[D.dpad.x, D.dpad.y, zf]}>
               <group ref={dpadTilt}>
                 {armIds.map((id, q) => (
-                  <mesh key={id} name={armNames[q]} geometry={built.dpadArm} material={mats.dpad} rotation={[0, 0, (q * Math.PI) / 2]} onPointerDown={(e) => holdButton(id, e)} />
+                  <mesh key={id} name={armNames[q]} geometry={simple.dpadArm} material={mats.dpad} rotation={[0, 0, (q * Math.PI) / 2]} onPointerDown={(e) => holdButton(id, e)} />
                 ))}
               </group>
-              <mesh position={[0, 0, DPAD_PROUD_MM_ESTIMATE + 0.15]} material={mats.hit} onPointerDown={onDpadDown}>
+            </group>
+          </>
+        )}
+
+        {kind !== 'pending' && (
+          <>
+            {/* the live picture, and the glass's reflection over it */}
+            <mesh name="screen" ref={glassMesh} geometry={common.screen} material={mats.screen} position={[rect.cx, rect.cy, rect.z + 0.012]} scale={screenScale} onPointerDown={onGlassDown} />
+            <mesh geometry={common.screen} material={mats.gloss} position={[rect.cx, rect.cy, rect.z + 0.024]} scale={screenScale} raycast={noRaycast} renderOrder={2} />
+
+            {/* light guide: the model's own part glows; a model without one gets this overlay */}
+            {prepared && prepared.led.length === 0 && <mesh geometry={common.led} material={mats.led} position={[0, 0, frontZ - zf + 0.03]} onPointerDown={onBodyDown} />}
+            <pointLight ref={ledLight} position={[D.led.bounds.x1 - 2, D.led.bounds.y1 - 2, frontZ + 5]} intensity={0} distance={60} decay={2} />
+
+            {/* generous invisible press targets, just above the controls */}
+            {(['top', 'bottom'] as const).map((id) => (
+              <mesh key={id} position={[hitTop[id][0], hitTop[id][1], hitTop[id][2] + 0.15]} material={mats.hit} onPointerDown={(e) => holdButton(id, e)}>
+                <circleGeometry args={[buttonHitRadius(id, D), 32]} />
+              </mesh>
+            ))}
+            <group ref={dpadRest} position={[hitTop.dpad[0], hitTop.dpad[1], hitTop.dpad[2] + 0.15]}>
+              <mesh material={mats.hit} onPointerDown={onDpadDown}>
                 <planeGeometry args={[dpadHitSize, dpadHitSize]} />
               </mesh>
             </group>

@@ -34,7 +34,7 @@ export async function startServer() {
     }
   };
   if (await up()) return { kill() {} };
-  const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: 'ignore' });
+  const server = spawn(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), 'preview', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: 'ignore' });
   for (let i = 0; i < 75; i++) {
     if (await up()) return server;
     await sleep(200);
