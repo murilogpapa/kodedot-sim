@@ -13,6 +13,7 @@ export const NEWS_STRINGS: Record<Locale, NewsStrings> = {
   en: { label: "What's new", gotIt: 'Got it', close: 'Close', earlier: 'Also earlier', more: 'Show me in the guide' },
   'pt-BR': { label: 'Novidades', gotIt: 'Entendi', close: 'Fechar', earlier: 'Também teve antes', more: 'Ver no guia' },
   es: { label: 'Novedades', gotIt: 'Entendido', close: 'Cerrar', earlier: 'También antes', more: 'Ver en la guía' },
+  fr: { label: 'Nouveautés', gotIt: 'Compris', close: 'Fermer', earlier: 'Aussi avant', more: 'Voir dans le guide' },
 };
 
 /** The day an entry was published, from its id ("2026-11-18-kodeos-0.1.3" -> 18 Nov 2026 in the visitor's language). */

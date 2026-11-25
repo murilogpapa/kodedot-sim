@@ -45,6 +45,7 @@ export const NOTES: NewsEntry[] = [
       en: 'KodeCity is on the Dot',
       'pt-BR': 'KodeCity já vem no Dot',
       es: 'KodeCity ya viene en el Dot',
+      fr: 'KodeCity est sur le Dot',
     },
     points: {
       en: [
@@ -62,6 +63,11 @@ export const NOTES: NewsEntry[] = [
         'Ábrela desde el menú Apps y muévete con la cruceta.',
         'KodeCity es el juego de código abierto de Kode, compilado aquí desde su repositorio público.',
       ],
+      fr: [
+        'KodeCity, une ville 3D en monde ouvert où conduire et se promener, est maintenant installée avec les autres apps.',
+        'Ouvrez-la depuis le menu Apps et dirigez-vous avec la croix directionnelle.',
+        'KodeCity est le jeu open source de Kode, compilé ici à partir de son dépôt public.',
+      ],
     },
   },
   {
@@ -70,6 +76,7 @@ export const NOTES: NewsEntry[] = [
       en: 'Export your project as a PDF',
       'pt-BR': 'Exporte seu projeto em PDF',
       es: 'Exporta tu proyecto en PDF',
+      fr: 'Exportez votre projet en PDF',
     },
     points: {
       en: [
@@ -87,6 +94,11 @@ export const NOTES: NewsEntry[] = [
         'Abre ese mismo PDF aquí otra vez y todo el banco vuelve tal como estaba.',
         'Está en el panel Banco, en Archivo del banco.',
       ],
+      fr: [
+        'Un seul fichier avec une photo du montage, le schéma, chaque connexion à cocher, la liste des pièces et le code.',
+        'Rouvrez ce même PDF ici et tout le banc revient tel qu\'il était.',
+        'Retrouvez-le dans le panneau Banc d\'essai, sous Fichier du banc.',
+      ],
     },
     guide: 'workbench',
   },
@@ -96,6 +108,7 @@ export const NOTES: NewsEntry[] = [
       en: 'Part pictures, new buttons and kodeOS 0.1.2',
       'pt-BR': 'Fotos das peças, botões novos e kodeOS 0.1.2',
       es: 'Fotos de las piezas, botones nuevos y kodeOS 0.1.2',
+      fr: 'Photos des pièces, nouveaux boutons et kodeOS 0.1.2',
     },
     points: {
       en: [
@@ -116,6 +129,12 @@ export const NOTES: NewsEntry[] = [
         'Cinco botones e interruptores nuevos: táctil de 2 pines, 6x6 y 12x12, con retención, e interruptor de palanca.',
         'Acuesta el Dot, ponlo de pie o de lado: haz clic derecho sobre él en la mesa.',
       ],
+      fr: [
+        'La bibliothèque de pièces affiche maintenant une photo de chaque pièce.',
+        'Le Dot exécute kodeOS 0.1.2 et suit les nouvelles versions tout seul.',
+        'Cinq nouveaux boutons et interrupteurs : tactile à 2 broches, 6x6 et 12x12, à verrouillage, et interrupteur à bascule.',
+        'Couchez le Dot, mettez-le debout ou sur le côté : faites un clic droit dessus sur le banc d\'essai.',
+      ],
     },
     guide: 'workbench',
   },
@@ -130,11 +149,13 @@ export function autoEntry(n: AutoNote): NewsEntry {
       en: `kodeOS updated to ${v}`,
       'pt-BR': `kodeOS atualizado para ${v}`,
       es: `kodeOS actualizado a ${v}`,
+      fr: `kodeOS mis à jour vers ${v}`,
     },
     points: {
       en: [`The Dot now runs kodeOS ${v}, built from Kode's public release.`, 'Your apps and settings on the Dot were kept.'],
       'pt-BR': [`O Dot agora roda o kodeOS ${v}, compilado a partir da versão pública da Kode.`, 'Seus apps e ajustes no Dot foram mantidos.'],
       es: [`El Dot ahora ejecuta kodeOS ${v}, compilado a partir de la versión pública de Kode.`, 'Tus apps y ajustes en el Dot se mantienen.'],
+      fr: [`Le Dot exécute maintenant kodeOS ${v}, compilé à partir de la version publique de Kode.`, 'Vos apps et réglages sur le Dot ont été conservés.'],
     },
   };
 }

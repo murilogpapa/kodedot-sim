@@ -201,7 +201,8 @@
       "name": {
         "en": "Breadboard, half size",
         "pt-BR": "Protoboard meia",
-        "es": "Protoboard media"
+        "es": "Protoboard media",
+         "fr": "Plaque d'essai, demi-taille"
       },
       "category": "prototyping",
       "kind": "declarative",
@@ -1450,7 +1451,8 @@
       "name": {
         "en": "LED red 5 mm",
         "pt-BR": "LED vermelho 5 mm",
-        "es": "LED rojo 5 mm"
+        "es": "LED rojo 5 mm",
+         "fr": "LED rouge 5 mm"
       },
       "category": "actuator",
       "kind": "declarative",
@@ -1784,7 +1786,8 @@
       "name": {
         "en": "Resistor",
         "pt-BR": "Resistor",
-        "es": "Resistencia"
+        "es": "Resistencia",
+        "fr": "Résistance"
       },
       "category": "passive",
       "kind": "declarative",
@@ -2363,7 +2366,8 @@
       "name": {
         "en": "Arduino Uno R3",
         "pt-BR": "Arduino Uno R3",
-        "es": "Arduino Uno R3"
+        "es": "Arduino Uno R3",
+        "fr": "Arduino Uno R3"
       },
       "category": "mcu",
       "kind": "wasm",

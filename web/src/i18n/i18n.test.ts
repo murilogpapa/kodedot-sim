@@ -39,7 +39,8 @@ describe('detectLocale', () => {
     expect(detectLocale(['pt-BR', 'en'])).toBe('pt-BR');
     expect(detectLocale(['pt-PT'])).toBe('pt-BR');
     expect(detectLocale(['es-MX'])).toBe('es');
-    expect(detectLocale(['fr', 'es'])).toBe('es');
+    expect(detectLocale(['fr-CA', 'en'])).toBe('fr');
+    expect(detectLocale(['de', 'es'])).toBe('es');
     expect(detectLocale(['de'])).toBe('en');
     expect(detectLocale([])).toBe('en');
   });

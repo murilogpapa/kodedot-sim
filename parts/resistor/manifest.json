@@ -68,7 +68,8 @@
       "label": {
         "en": "Resistance",
         "pt-BR": "Resistência",
-        "es": "Resistencia"
+        "es": "Resistencia",
+        "fr": "Résistance"
       },
       "min": 0.1,
       "max": 10000000,

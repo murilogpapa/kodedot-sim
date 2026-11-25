@@ -9,7 +9,7 @@ import { CHANGELOG, LATEST_NOTE_ID, NOTES, autoEntry, mergeChangelog, type NewsE
 import { EARLIER_MAX, NewsStore, SEEN_KEY, WELCOMED_KEY, mayAppear, planNews } from './store';
 import { NEWS_STRINGS, entryDate } from './strings';
 
-const entry = (id: string): NewsEntry => ({ id, title: { en: `t ${id}`, 'pt-BR': `t ${id}`, es: `t ${id}` }, points: { en: ['a', 'b', 'c'], 'pt-BR': ['a', 'b', 'c'], es: ['a', 'b', 'c'] } });
+const entry = (id: string): NewsEntry => ({ id, title: { en: `t ${id}`, 'pt-BR': `t ${id}`, es: `t ${id}`, fr: `t ${id}` }, points: { en: ['a', 'b', 'c'], 'pt-BR': ['a', 'b', 'c'], es: ['a', 'b', 'c'], fr: ['a', 'b', 'c'] } });
 const E = (...ids: string[]) => ids.map(entry);
 
 /** A localStorage stand-in. */
@@ -49,7 +49,7 @@ describe('the changelog data', () => {
   it('merges the automatic kodeOS lines, newest first, and ignores a malformed line', () => {
     const merged = mergeChangelog(E('2026-11-18'), [{ id: '2026-12-03-kodeos-0.1.3', kind: 'kodeos', version: 'v0.1.3' }, { id: 'x', kind: 'kodeos', version: 'v1' }, null, 'junk', { id: '2026-11-18-kodeos-0.1.2', kind: 'kodeos', version: 'v0.1.2' }]);
     expect(merged.map((e) => e.id)).toEqual(['2026-12-03-kodeos-0.1.3', '2026-11-18-kodeos-0.1.2', '2026-11-18']);
-    expect(merged[0].title).toEqual({ en: 'kodeOS updated to v0.1.3', 'pt-BR': 'kodeOS atualizado para v0.1.3', es: 'kodeOS actualizado a v0.1.3' });
+    expect(merged[0].title).toEqual({ en: 'kodeOS updated to v0.1.3', 'pt-BR': 'kodeOS atualizado para v0.1.3', es: 'kodeOS actualizado a v0.1.3', fr: 'kodeOS mis à jour vers v0.1.3' });
     for (const { id } of LOCALES) expect(merged[0].points[id].length).toBe(2);
   });
   it('reads the day of an entry from its id', () => {

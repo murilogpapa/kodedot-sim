@@ -1,12 +1,14 @@
 import { en } from './en';
 import { es } from './es';
+import { fr } from './fr';
 import { ptBR } from './pt-BR';
 
-export type Locale = 'en' | 'pt-BR' | 'es';
+export type Locale = 'en' | 'pt-BR' | 'es' | 'fr';
 export const LOCALES: { id: Locale; label: string }[] = [
   { id: 'en', label: 'English' },
   { id: 'pt-BR', label: 'Português (Brasil)' },
   { id: 'es', label: 'Español' },
+  { id: 'fr', label: 'Français' },
 ];
 
 /** `en` is the source of truth: its keys define MessageKey. Other locales are typed Messages, so a missing or extra key is a compile error. */
@@ -20,20 +22,21 @@ export type TKey = Exclude<MessageKey, `${string}.${PluralSuffix}`> | (MessageKe
 export type Vars = Record<string, string | number>;
 export type TFn = (key: TKey, vars?: Vars) => string;
 
-export const DICTS: Record<Locale, Messages> = { en, 'pt-BR': ptBR, es };
+export const DICTS: Record<Locale, Messages> = { en, 'pt-BR': ptBR, es, fr };
 
 export function detectLocale(languages: readonly string[]): Locale {
   for (const l of languages) {
     const low = l.toLowerCase();
     if (low.startsWith('pt')) return 'pt-BR';
     if (low.startsWith('es')) return 'es';
+    if (low.startsWith('fr')) return 'fr';
     if (low.startsWith('en')) return 'en';
   }
   return 'en';
 }
 
 export function isLocale(x: unknown): x is Locale {
-  return x === 'en' || x === 'pt-BR' || x === 'es';
+  return x === 'en' || x === 'pt-BR' || x === 'es' || x === 'fr';
 }
 
 export function interpolate(tpl: string, vars: Vars | undefined, locale: Locale): string {

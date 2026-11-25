@@ -242,7 +242,8 @@
       "label": {
         "en": "Powered over USB",
         "pt-BR": "Alimentada por USB",
-        "es": "Alimentada por USB"
+        "es": "Alimentada por USB",
+        "fr": "Alimentée par USB"
       },
       "default": true
     },

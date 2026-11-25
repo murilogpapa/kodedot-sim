@@ -3,11 +3,12 @@ import { APP_PACKAGE_EXT } from '../lib/appPackage';
 import { en } from './content.en';
 import { es } from './content.es';
 import { ptBR } from './content.pt-BR';
+import { fr } from './content.fr';
 
 /** `en` defines the keys; the other languages are typed against it, so a missing or extra key does not compile. */
 export type GuideKey = keyof typeof en;
 export type GuideMessages = Record<GuideKey, string>;
-export const GUIDE_DICTS: Record<Locale, GuideMessages> = { en, 'pt-BR': ptBR, es };
+export const GUIDE_DICTS: Record<Locale, GuideMessages> = { en, 'pt-BR': ptBR, es, fr };
 
 export const SITE_URL = 'https://kodedot.murilogp.dev';
 export const REPO_URL = 'https://github.com/murilogpapa/kodedot-sim';

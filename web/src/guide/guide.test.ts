@@ -14,8 +14,8 @@ import { BOARD_NAMES, SKETCH_BOARD_IDS, SKETCH_FAMILIES, SKETCH_SUPPORTED, SKETC
 import { SKETCH_TEXTS } from './sketchData.i18n';
 
 const repo = (path: string) => new URL(`../../../${path}`, import.meta.url);
-const LANGS = ['en', 'pt-BR', 'es'] as const;
-const OTHERS = ['pt-BR', 'es'] as const;
+const LANGS = ['en', 'pt-BR', 'es', 'fr'] as const;
+const OTHERS = ['pt-BR', 'es', 'fr'] as const;
 const KEYS = Object.keys(en) as GuideKey[];
 
 const varsOf = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();

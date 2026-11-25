@@ -132,4 +132,67 @@ const es: Texts = {
   },
 };
 
-export const SKETCH_TEXTS: Record<string, Texts> = { 'pt-BR': ptBR, es };
+const fr: Texts = {
+  'arduino-api': {
+    of: 'ce91d14c',
+    text: 'Le langage et l\'API d\'Arduino : pinMode, digitalRead/Write, analogRead/Write, millis, micros, delay, tone, random, map, constrain, attachInterrupt, Serial, String, Print/Stream.',
+  },
+  cpp17: {
+    of: '837e804a',
+    text: 'C++17 avec la bibliothèque standard libc++ (std::vector, std::string, std::map, std::function, lambdas, <algorithm>, <cmath>), et printf/puts vers le moniteur série.',
+  },
+  'multi-file': {
+    of: '225dd7e4',
+    text: 'Plusieurs fichiers .ino, des fichiers .h/.cpp/.c à côté du sketch et des bibliothèques dans des dossiers (libraries/Nom/src/*.cpp).',
+  },
+  'wire-spi': {
+    of: 'a801d09c',
+    text: 'Wire (I2C en maître, et en esclave via le banc d\'essai), SPI, EEPROM, Servo, Stepper (copies déjà fournies avec le banc d\'essai).',
+  },
+  'chip-registers': {
+    of: 'c889cdd8',
+    text: 'Aucune puce n\'est émulée : l\'accès direct aux registres (PORTB, DDRB, TCCR1A, ADCSRA, SREG), avr/io.h, avr/interrupt.h et les vecteurs ISR(...) n\'existent pas. Utilisez l\'API d\'Arduino.',
+  },
+  'exceptions-rtti': {
+    of: 'f00fb8cc',
+    text: 'Les exceptions et le RTTI de C++ sont désactivés (comme dans la plupart des cores Arduino) : pas de try/catch/throw, de typeid ni de dynamic_cast.',
+  },
+  threads: {
+    of: '69f9304f',
+    text: 'Pas de threads : std::thread, les attentes bloquantes de std::mutex et les tâches FreeRTOS (xTaskCreate, files) ne sont pas disponibles.',
+  },
+  'esp-idf': {
+    of: '81357f72',
+    text: 'Pas d\'en-têtes ESP-IDF (esp_*.h, driver/*.h, freertos/*.h) et pas de Bluetooth.',
+  },
+  timing: {
+    of: '94f0967a',
+    text: 'Le temps est l\'horloge du banc d\'essai, en millisecondes. Le coût en cycles de chaque instruction n\'est pas modélisé, et une boucle qui n\'appelle jamais delay ni millis, et ne fait aucune entrée ou sortie, est signalée comme occupée.',
+  },
+  network: {
+    of: '9d97d50d',
+    text: 'Les classes WiFi n\'existent qu\'en façade et répondent « non connecté » ; aucun trafic réseau ne sort du banc d\'essai.',
+  },
+  'esp32-api': {
+    of: 'cc284b09',
+    text: 'Les extras Arduino pour ESP32 existent en partie (ledc*, dacWrite, Preferences, analogSetAttenuation, esp_random, esp_timer_get_time) ; le reste de l\'API ESP32 n\'existe pas.',
+  },
+  'wasm32-int': {
+    of: '83e6f708',
+    text: 'Le sketch s\'exécute en WebAssembly (wasm32) : int et unsigned font 32 bits ici et 16 bits sur un vrai Uno, donc le code qui compte sur le dépassement en 16 bits se comporte différemment.',
+  },
+  'no-ram-limit': {
+    of: '41a30e0e',
+    text: 'Les limites de 2 Ko de RAM et de 32 Ko de flash de la vraie puce ne sont pas appliquées ; la pièce a sa propre mémoire (limits.memoryKb).',
+  },
+  'avr-headers': {
+    of: 'd246609d',
+    text: 'Les données en PROGMEM sont des données ordinaires, pgm_read_* sont des lectures simples et F() fonctionne ; il n\'y a ni avr/io.h, ni ISR(), ni accès direct aux ports.',
+  },
+  'wasm32-uno-r4': {
+    of: 'd7e5487d',
+    text: 'Le sketch s\'exécute en WebAssembly (wasm32). Les registres du RA4M1 de la R4, la calibration du DAC et de l\'ADC et la HAL FSP n\'existent pas ; analogReadResolution et analogWrite sur A0 (DAC) sont modélisés.',
+  },
+};
+
+export const SKETCH_TEXTS: Record<string, Texts> = { 'pt-BR': ptBR, es, fr };
